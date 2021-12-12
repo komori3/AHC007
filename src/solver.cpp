@@ -186,14 +186,15 @@ struct Edge {
     int from, to;
     T cost;
     int idx;
+    int status; // 0: not fixed, 1: fixed(use), -1: fixed(not use)
 
     Edge() = default;
 
-    Edge(int from, int to, T cost = 1, int idx = -1) : from(from), to(to), cost(cost), idx(idx) {}
+    Edge(int from, int to, T cost = 1, int idx = -1, int status = 0) : from(from), to(to), cost(cost), idx(idx), status(status) {}
 
     string stringify() const {
         std::ostringstream oss;
-        oss << "Edge [from=" << from << ", to=" << to << ", cost=" << cost << ", idx=" << idx << "]";
+        oss << "Edge [from=" << from << ", to=" << to << ", cost=" << cost << ", idx=" << idx << ", status=%d" << status << "]";
         return oss.str();
     }
 
@@ -312,24 +313,52 @@ MinimumSpanningTree< T > kruskal(Edges< T >& edges, int V) {
     return { total, es };
 }
 
-int main() {
-    std::ios::sync_with_stdio(false);
-    std::cin.tie(nullptr);
+template< typename T >
+MinimumSpanningTree< T > kruskal2(Edges<T> edges, int V) {
 
-#ifdef _MSC_VER
-    std::ifstream ifs("C:\\dev\\heuristic\\tasks\\AHC007\\tools\\in\\0000.txt");
-    std::istream& in = ifs;
-    std::ofstream ofs("C:\\dev\\heuristic\\tasks\\AHC007\\tools\\out\\0000.txt");
-    std::ostream& out = ofs;
-#else
-    std::istream& in = std::cin;
-    std::ostream& out = std::cout;
-#endif
+    T total = T();
+    UnionFind tree(V);
 
+    Edges<T> es;
+    Edges<T> free_edges;
+
+    for (const auto& e : edges) {
+        if (e.status == 0) {
+            free_edges.push_back(e);
+        }
+        else if (e.status == 1) {
+            // use
+            tree.unite(e.from, e.to);
+            es.push_back(e);
+            total += e.cost;
+        }
+    }
+
+    sort(begin(free_edges), end(free_edges), [](const Edge< T >& a, const Edge< T >& b) {
+        return a.cost < b.cost;
+        });
+
+    for (auto& e : free_edges) {
+        if (tree.unite(e.from, e.to)) {
+            es.emplace_back(e);
+            total += e.cost;
+        }
+    }
+    return { total, es };
+
+}
+
+int solve(istream& in, ostream& out) {
     using pii = pair<int, int>;
 
     vector<pii> points;
-    Edges<int> edges;
+    Edges<double> edges;
+    vector<double> base_distances(M);
+
+    auto calc_coeff = [&](int eid, double start_coeff, double end_coeff) {
+        double progress = (double)eid / (M - 1);
+        return start_coeff * (1.0 - progress) + end_coeff * progress;
+    };
 
     points.resize(N);
     for (int i = 0; i < N; i++) {
@@ -341,23 +370,73 @@ int main() {
         auto [ux, uy] = points[u];
         auto [vx, vy] = points[v];
 
-        int dist = (int)round(sqrt(pow(ux - vx, 2.0) + pow(uy - vy, 2.0)));
-        dump(i, dist);
-        edges.emplace_back(u, v, dist, i);
+        base_distances[i] = (int)round(sqrt(pow(abs(ux - vx), 2.0) + pow(abs(uy - vy), 2.0)));
+        edges.emplace_back(u, v, base_distances[i] * calc_coeff(i, 1.72, 1.79), i); // [d, 3d] ‚ÌŠú‘Ò’l‚Í 2d
     }
 
-    auto [cost, es] = kruskal(edges, N);
-
-    bitset<M> to_use;
-    for (const auto& e : es) {
-        to_use[e.idx] = true;
-    }
+    double actual_cost;
 
     for (int i = 0; i < M; i++) {
         int len;
         in >> len;
-        out << (to_use[i] ? 1 : 0) << endl;
+        edges[i].cost = len; // true value
+
+        auto [cost, es] = kruskal2(edges, N);
+        bitset<M> to_use;
+        for (const auto& e : es) {
+            to_use[e.idx] = true;
+        }
+
+        if (to_use[i]) {
+            edges[i].status = 1;
+            out << 1 << endl;
+        }
+        else {
+            edges[i].status = -1;
+            out << 0 << endl;
+        }
+
+        if (i == M - 1) actual_cost = cost;
     }
+
+    auto [theoretical_cost, _] = kruskal(edges, N);
+
+    return (int)round(1e8 * theoretical_cost / actual_cost);
+}
+
+#ifdef _MSC_VER
+long long batch_test() {
+
+    vector<long long> scores(150, 0);
+
+    concurrency::parallel_for(0, 150, [&](int seed) {
+        string in_file = format("C:\\dev\\heuristic\\tasks\\AHC007\\tools\\in\\%04d.txt", seed);
+        string out_file = format("C:\\dev\\heuristic\\tasks\\AHC007\\tools\\out\\%04d.txt", seed);
+        ifstream ifs(in_file);
+        ofstream ofs(out_file);
+        int score = solve(ifs, ofs);
+        scores[seed] = score;
+    });
+
+    long long score_sum = accumulate(scores.begin(), scores.end(), 0LL);
+    dump(score_sum);
+    return score_sum;
+}
+
+int main() {
+    batch_test();
+}
+
+#else
+
+int main() {
+
+    std::istream& in = std::cin;
+    std::ostream& out = std::cout;
+
+    solve(in, out);
 
     return 0;
 }
+
+#endif
