@@ -176,233 +176,188 @@ template<typename T> bool chmin(T& a, const T& b) { if (a > b) { a = b; return t
 
 
 
-constexpr int N = 1000;
-constexpr int M = 50;
+constexpr int N = 400;
+constexpr int M = 1995;
 
-//using Point = std::pair<int, int>;
+using namespace std;
 
-struct Point {
+template< typename T = int >
+struct Edge {
+    int from, to;
+    T cost;
+    int idx;
 
-    int x, y;
+    Edge() = default;
 
-    Point(int x = 0, int y = 0) : x(x), y(y) {}
+    Edge(int from, int to, T cost = 1, int idx = -1) : from(from), to(to), cost(cost), idx(idx) {}
 
-    inline int distance(const Point& p) {
-        return abs(x - p.x) + abs(y - p.y);
-    }
-
-};
-
-struct Order {
-    int id;
-    Point from, to;
-};
-
-struct TestCase {
-
-    std::array<int, N> a;
-    std::array<int, N> b;
-    std::array<int, N> c;
-    std::array<int, N> d;
-
-    TestCase(std::istream& in) {
-        for (int i = 0; i < N; i++) {
-            in >> a[i] >> b[i] >> c[i] >> d[i];
-        }
-    }
-
-    std::vector<Order> get_orders() const {
-        std::vector<Order> orders;
-        for (int id = 0; id < N; id++) {
-            Order order;
-            order.id = id;
-            order.from.x = a[id];
-            order.from.y = b[id];
-            order.to.x = c[id];
-            order.to.y = d[id];
-            orders.push_back(order);
-        }
-        return orders;
-    }
-
-};
-
-struct Solution {
-    int total_dist;
-    std::vector<int> order_ids;
-    std::vector<Point> route;
-
-    Solution(int total_dist, const std::vector<int>& order_ids, const std::vector<Point>& route) : total_dist(total_dist), order_ids(order_ids), route(route) {}
-
-    std::string stringify() const {
+    string stringify() const {
         std::ostringstream oss;
-        oss << order_ids.size();
-        for (int r : order_ids) {
-            oss << ' ' << r + 1;
-        }
-        oss << '\n';
-        oss << route.size();
-        for (const auto& [x, y] : route) {
-            oss << ' ' << x << ' ' << y;
-        }
+        oss << "Edge [from=" << from << ", to=" << to << ", cost=" << cost << ", idx=" << idx << "]";
         return oss.str();
     }
+
+    operator int() const { return to; }
 };
 
-struct Solver {
+template< typename T = int >
+struct Graph {
+    vector< vector< Edge< T > > > g;
+    int es;
 
-    TestCase tc;
+    Graph() = default;
 
-    Solver(const TestCase& tc) : tc(tc) {}
+    explicit Graph(int n) : g(n), es(0) {}
 
-    Solution solve_sub(const std::vector<Order>& sub_orders) {
-
-        Point origin(400, 400);
-
-        // nearest neighbor
-        std::bitset<M> picked; // picked ‚È‚ç to ‚àŒó•â‚É“ü‚é
-        std::bitset<M> delivered;
-
-        int total_dist = 0;
-        std::vector<Point> route({ origin });
-        Point pos(origin);
-        while (true) {
-
-            int min_dist = INT_MAX;
-            int min_idx = -1;
-            bool is_pick = false;
-            for (int i = 0; i < M; i++) {
-                const auto& order = sub_orders[i];
-                if (!picked[i]) {
-                    // pick
-                    int dist = pos.distance(order.from);
-                    if (dist < min_dist) {
-                        min_dist = dist;
-                        min_idx = i;
-                        is_pick = true;
-                    }
-                }
-                else if (!delivered[i]) {
-                    // deliver
-                    int dist = pos.distance(order.to);
-                    if (dist < min_dist) {
-                        min_dist = dist;
-                        min_idx = i;
-                        is_pick = false;
-                    }
-                }
-            }
-
-            (is_pick ? picked : delivered)[min_idx] = true;
-            auto npos = is_pick ? sub_orders[min_idx].from : sub_orders[min_idx].to;
-            route.push_back(npos);
-            total_dist += pos.distance(npos);
-            pos = npos;
-
-            if (delivered.count() == M) break;
-        }
-        route.push_back(origin);
-        total_dist += origin.distance(pos);
-
-        std::vector<int> order_ids;
-        for (const auto& order : sub_orders) {
-            order_ids.push_back(order.id);
-        }
-
-        return Solution(total_dist, order_ids, route);
+    size_t size() const {
+        return g.size();
     }
 
-    Solution solve() {
-
-        Point origin(400, 400);
-        
-        auto orders = tc.get_orders();
-
-        std::sort(orders.begin(), orders.end(), [&origin](const Order& o1, const Order& o2) {
-            return std::max(origin.distance(o1.from), origin.distance(o1.to)) < std::max(origin.distance(o2.from), origin.distance(o2.to));
-            });
-
-        auto best_sol = solve_sub(std::vector<Order>(orders.begin(), orders.begin() + M));
-        //dump(best_sol.total_dist);
-
-        auto get_temp = [](double start_temp, double end_temp, double now_time, double end_time) {
-            return end_temp + (start_temp - end_temp) * (end_time - now_time) / end_time;
-        };
-        
-        int loop = 0;
-        auto prev_sol = best_sol;
-        double start_time = timer.elapsed_ms(), now_time, end_time = start_time + 1900;
-        while ((now_time = timer.elapsed_ms()) < end_time) {
-            int i = rnd.next_int(M), j = rnd.next_int(M, N - 1);
-            std::swap(orders[i], orders[j]);
-            auto sol = solve_sub(std::vector<Order>(orders.begin(), orders.begin() + M));
-            int diff = sol.total_dist - prev_sol.total_dist;
-            double temp = get_temp(3.0, 0.0, now_time - start_time, end_time - start_time);
-            double prob = (-diff / temp);
-            //if (rnd.next_double() < prob) {
-            if (diff < 0) {
-                prev_sol = sol;
-                if (sol.total_dist < best_sol.total_dist) {
-                    best_sol = sol;
-                    //dump(best_sol.total_dist);
-                }
-            }
-            else {
-                std::swap(orders[i], orders[j]);
-            }
-            loop++;
-        }
-
-        //dump(loop);
-
-        return best_sol;
+    void add_directed_edge(int from, int to, T cost = 1) {
+        g[from].emplace_back(from, to, cost, es++);
     }
 
+    void add_edge(int from, int to, T cost = 1) {
+        g[from].emplace_back(from, to, cost, es);
+        g[to].emplace_back(to, from, cost, es++);
+    }
+
+    void read(int M, int padding = -1, bool weighted = false, bool directed = false) {
+        for (int i = 0; i < M; i++) {
+            int a, b;
+            cin >> a >> b;
+            a += padding;
+            b += padding;
+            T c = T(1);
+            if (weighted) cin >> c;
+            if (directed) add_directed_edge(a, b, c);
+            else add_edge(a, b, c);
+        }
+    }
+
+    inline vector< Edge< T > >& operator[](const int& k) {
+        return g[k];
+    }
+
+    inline const vector< Edge< T > >& operator[](const int& k) const {
+        return g[k];
+    }
 };
 
-void batch_test() {
+template< typename T = int >
+using Edges = vector< Edge< T > >;
 
-    std::vector<int> scores(100, 0);
-    concurrency::parallel_for(0, 100, [&](int seed) {
-        std::string in_file = format("C:\\dev\\heuristic\\tasks\\AHC006\\tools\\in\\%04d.txt", seed);
-        std::string out_file = format("C:\\dev\\heuristic\\tasks\\AHC006\\tools\\out\\%04d.txt", seed);
-        std::ifstream ifs(in_file);
-        std::ofstream ofs(out_file);
-        TestCase tc(ifs);
-        Solver solver(tc);
-        auto solution = solver.solve();
-        ofs << solution << std::endl;
-        scores[seed] = solution.total_dist;
-    });
+struct UnionFind {
+    vector< int > data;
 
-    dump(scores);
+    UnionFind() = default;
 
+    explicit UnionFind(size_t sz) : data(sz, -1) {}
+
+    bool unite(int x, int y) {
+        x = find(x), y = find(y);
+        if (x == y) return false;
+        if (data[x] > data[y]) swap(x, y);
+        data[x] += data[y];
+        data[y] = x;
+        return true;
+    }
+
+    int find(int k) {
+        if (data[k] < 0) return (k);
+        return data[k] = find(data[k]);
+    }
+
+    int size(int k) {
+        return -data[find(k)];
+    }
+
+    bool same(int x, int y) {
+        return find(x) == find(y);
+    }
+
+    vector< vector< int > > groups() {
+        int n = (int)data.size();
+        vector< vector< int > > ret(n);
+        for (int i = 0; i < n; i++) {
+            ret[find(i)].emplace_back(i);
+        }
+        ret.erase(remove_if(begin(ret), end(ret), [&](const vector< int >& v) {
+            return v.empty();
+            }));
+        return ret;
+    }
+};
+
+template< typename T >
+struct MinimumSpanningTree {
+    T cost;
+    Edges< T > edges;
+};
+
+template< typename T >
+MinimumSpanningTree< T > kruskal(Edges< T >& edges, int V) {
+    sort(begin(edges), end(edges), [](const Edge< T >& a, const Edge< T >& b) {
+        return a.cost < b.cost;
+        });
+    UnionFind tree(V);
+    T total = T();
+    Edges< T > es;
+    for (auto& e : edges) {
+        if (tree.unite(e.from, e.to)) {
+            es.emplace_back(e);
+            total += e.cost;
+        }
+    }
+    return { total, es };
 }
 
 int main() {
     std::ios::sync_with_stdio(false);
     std::cin.tie(nullptr);
 
-    batch_test();
-    exit(1);
-
 #ifdef _MSC_VER
-    std::ifstream ifs("C:\\dev\\heuristic\\tasks\\AHC006\\tools\\in\\0000.txt");
+    std::ifstream ifs("C:\\dev\\heuristic\\tasks\\AHC007\\tools\\in\\0000.txt");
     std::istream& in = ifs;
-    std::ofstream ofs("C:\\dev\\heuristic\\tasks\\AHC006\\tools\\out\\0000.txt");
+    std::ofstream ofs("C:\\dev\\heuristic\\tasks\\AHC007\\tools\\out\\0000.txt");
     std::ostream& out = ofs;
 #else
     std::istream& in = std::cin;
     std::ostream& out = std::cout;
 #endif
 
-    TestCase tc(in);
+    using pii = pair<int, int>;
 
-    Solver solver(tc);
+    vector<pii> points;
+    Edges<int> edges;
 
-    auto solution = solver.solve();
+    points.resize(N);
+    for (int i = 0; i < N; i++) {
+        in >> points[i].first >> points[i].second;
+    }
+    for (int i = 0; i < M; i++) {
+        int u, v;
+        in >> u >> v;
+        auto [ux, uy] = points[u];
+        auto [vx, vy] = points[v];
 
-    out << solution << std::endl;
+        int dist = (int)round(sqrt(pow(ux - vx, 2.0) + pow(uy - vy, 2.0)));
+        dump(i, dist);
+        edges.emplace_back(u, v, dist, i);
+    }
+
+    auto [cost, es] = kruskal(edges, N);
+
+    bitset<M> to_use;
+    for (const auto& e : es) {
+        to_use[e.idx] = true;
+    }
+
+    for (int i = 0; i < M; i++) {
+        int len;
+        in >> len;
+        out << (to_use[i] ? 1 : 0) << endl;
+    }
 
     return 0;
 }
