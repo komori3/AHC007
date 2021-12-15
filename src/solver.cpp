@@ -176,84 +176,33 @@ template<typename T> bool chmin(T& a, const T& b) { if (a > b) { a = b; return t
 
 
 
+using namespace std;
+
 constexpr int N = 400;
 constexpr int M = 1995;
 
-using namespace std;
-
-template< typename T = int >
-struct Edge {
-    int from, to;
-    T cost;
-    int idx;
-    int status; // 0: not fixed, 1: fixed(use), -1: fixed(not use)
-
-    Edge() = default;
-
-    Edge(int from, int to, T cost = 1, int idx = -1, int status = 0) : from(from), to(to), cost(cost), idx(idx), status(status) {}
-
-    string stringify() const {
-        std::ostringstream oss;
-        oss << "Edge [from=" << from << ", to=" << to << ", cost=" << cost << ", idx=" << idx << ", status=%d" << status << "]";
-        return oss.str();
-    }
-
-    operator int() const { return to; }
-};
-
-template< typename T = int >
-struct Graph {
-    vector< vector< Edge< T > > > g;
-    int es;
-
-    Graph() = default;
-
-    explicit Graph(int n) : g(n), es(0) {}
-
-    size_t size() const {
-        return g.size();
-    }
-
-    void add_directed_edge(int from, int to, T cost = 1) {
-        g[from].emplace_back(from, to, cost, es++);
-    }
-
-    void add_edge(int from, int to, T cost = 1) {
-        g[from].emplace_back(from, to, cost, es);
-        g[to].emplace_back(to, from, cost, es++);
-    }
-
-    void read(int M, int padding = -1, bool weighted = false, bool directed = false) {
+struct TestCase {
+    int x[N], y[N];
+    int u[M], v[M];
+    TestCase() = default;
+    TestCase(istream& in) {
+        for (int i = 0; i < N; i++) {
+            in >> x[i] >> y[i];
+        }
         for (int i = 0; i < M; i++) {
-            int a, b;
-            cin >> a >> b;
-            a += padding;
-            b += padding;
-            T c = T(1);
-            if (weighted) cin >> c;
-            if (directed) add_directed_edge(a, b, c);
-            else add_edge(a, b, c);
+            in >> u[i] >> v[i];
         }
     }
-
-    inline vector< Edge< T > >& operator[](const int& k) {
-        return g[k];
-    }
-
-    inline const vector< Edge< T > >& operator[](const int& k) const {
-        return g[k];
-    }
 };
 
-template< typename T = int >
-using Edges = vector< Edge< T > >;
-
 struct UnionFind {
+
+    int num_sets;
     vector< int > data;
 
     UnionFind() = default;
 
-    explicit UnionFind(size_t sz) : data(sz, -1) {}
+    explicit UnionFind(size_t sz) : data(sz, -1), num_sets(sz) {}
 
     bool unite(int x, int y) {
         x = find(x), y = find(y);
@@ -261,6 +210,7 @@ struct UnionFind {
         if (data[x] > data[y]) swap(x, y);
         data[x] += data[y];
         data[y] = x;
+        num_sets--;
         return true;
     }
 
@@ -290,141 +240,139 @@ struct UnionFind {
     }
 };
 
-template< typename T >
-struct MinimumSpanningTree {
-    T cost;
-    Edges< T > edges;
+struct State {
+    Xorshift rnd;
+    int turn;
+    int xs[N], ys[N];
+    int us[M], vs[M];
+    int base_dist[M];
+    int actual_dist[M];
+    bitset<M> used;
+    UnionFind tree;
+    int cost;
+    State(const TestCase& tc) : tree(N) {
+        turn = 0;
+        memcpy(xs, tc.x, sizeof(int) * N);
+        memcpy(ys, tc.y, sizeof(int) * N);
+        memcpy(us, tc.u, sizeof(int) * M);
+        memcpy(vs, tc.v, sizeof(int) * M);
+        for (int i = 0; i < M; i++) {
+            int u = tc.u[i], v = tc.v[i];
+            int ux = tc.x[u], uy = tc.y[u];
+            int vx = tc.x[v], vy = tc.y[v];
+            base_dist[i] = (int)round(sqrt((ux - vx) * (ux - vx) + (uy - vy) * (uy - vy)));
+            used[i] = 0;
+        }
+        cost = 0;
+    }
+    int query(int len) {
+        using pii = pair<int, int>;
+
+        actual_dist[turn] = len;
+        int u = us[turn], v = vs[turn];
+        if (tree.same(u, v)) return used[turn++] = false;
+
+        // 未決定辺の長さをランダムに設定して mst を生成することを繰り返す
+
+        // 辺 e が最小全域木で使われる
+        // -> 辺 e よりコストの小さい辺を（閉路ができるかどうかに関わらず）UnionFind で unite した際に、e の両端点が連結していない
+
+        int num_trial = 100;
+        int num_selected = 0;
+        for (int t = 0; t < num_trial; t++) {
+            bool use_flag = true;
+            UnionFind ctree(tree);
+            // 未決定辺にランダムに重み付け
+            for (int j = turn + 1; j < M; j++) {
+                int d = rnd.next_int(base_dist[j], base_dist[j] * 3);
+                if (d >= len) continue;
+                ctree.unite(us[j], vs[j]);
+                if (ctree.same(u, v)) {
+                    use_flag = false;
+                    break;
+                }
+            }
+            num_selected += use_flag;
+        }
+
+        used[turn] = num_selected >= num_trial * 4 / 10;
+        if (used[turn]) {
+            tree.unite(u, v);
+            cost += len;
+        }
+
+        return used[turn++];
+    }
+
+    int calc_true_mst_cost() const {
+        using pii = pair<int, int>;
+        UnionFind ctree(N);
+        vector<pii> edges;
+        for (int i = 0; i < M; i++) {
+            edges.emplace_back(actual_dist[i], i);
+        }
+        sort(edges.begin(), edges.end());
+        int mst_cost = 0;
+        for (const auto [d, i] : edges) {
+            if (ctree.unite(us[i], vs[i])) {
+                mst_cost += d;
+            }
+        }
+        return mst_cost;
+    }
+
+    int calc_score() const {
+        return (int)round(1e8 * calc_true_mst_cost() / cost);
+    }
 };
 
-template< typename T >
-MinimumSpanningTree< T > kruskal(Edges< T >& edges, int V) {
-    sort(begin(edges), end(edges), [](const Edge< T >& a, const Edge< T >& b) {
-        return a.cost < b.cost;
-        });
-    UnionFind tree(V);
-    T total = T();
-    Edges< T > es;
-    for (auto& e : edges) {
-        if (tree.unite(e.from, e.to)) {
-            es.emplace_back(e);
-            total += e.cost;
-        }
-    }
-    return { total, es };
-}
-
-template< typename T >
-MinimumSpanningTree< T > kruskal2(Edges<T> edges, int V) {
-
-    T total = T();
-    UnionFind tree(V);
-
-    Edges<T> es;
-    Edges<T> free_edges;
-
-    for (const auto& e : edges) {
-        if (e.status == 0) {
-            free_edges.push_back(e);
-        }
-        else if (e.status == 1) {
-            // use
-            tree.unite(e.from, e.to);
-            es.push_back(e);
-            total += e.cost;
-        }
-    }
-
-    sort(begin(free_edges), end(free_edges), [](const Edge< T >& a, const Edge< T >& b) {
-        return a.cost < b.cost;
-        });
-
-    for (auto& e : free_edges) {
-        if (tree.unite(e.from, e.to)) {
-            es.emplace_back(e);
-            total += e.cost;
-        }
-    }
-    return { total, es };
-
-}
-
-int solve(istream& in, ostream& out) {
+int solve(istream& in, ostream& out, bool no_output = false) {
+    Timer timer;
     using pii = pair<int, int>;
 
-    vector<pii> points;
-    Edges<double> edges;
-    vector<double> base_distances(M);
+    const TestCase tc(in);
 
-    auto calc_coeff = [&](int eid, double start_coeff, double end_coeff) {
-        double progress = (double)eid / (M - 1);
-        return start_coeff * (1.0 - progress) + end_coeff * progress;
-    };
-
-    points.resize(N);
-    for (int i = 0; i < N; i++) {
-        in >> points[i].first >> points[i].second;
-    }
-    for (int i = 0; i < M; i++) {
-        int u, v;
-        in >> u >> v;
-        auto [ux, uy] = points[u];
-        auto [vx, vy] = points[v];
-
-        base_distances[i] = (int)round(sqrt(pow(abs(ux - vx), 2.0) + pow(abs(uy - vy), 2.0)));
-        edges.emplace_back(u, v, base_distances[i] * calc_coeff(i, 1.72, 1.79), i); // [d, 3d] の期待値は 2d
-    }
-
-    double actual_cost;
+    State state(tc);
 
     for (int i = 0; i < M; i++) {
         int len;
         in >> len;
-        edges[i].cost = len; // true value
-
-        auto [cost, es] = kruskal2(edges, N);
-        bitset<M> to_use;
-        for (const auto& e : es) {
-            to_use[e.idx] = true;
-        }
-
-        if (to_use[i]) {
-            edges[i].status = 1;
-            out << 1 << endl;
-        }
-        else {
-            edges[i].status = -1;
-            out << 0 << endl;
-        }
-
-        if (i == M - 1) actual_cost = cost;
+        int res = state.query(len);
+        if (!no_output) out << res << endl;
     }
-
-    auto [theoretical_cost, _] = kruskal(edges, N);
-
-    return (int)round(1e8 * theoretical_cost / actual_cost);
+    dump(timer.elapsed_ms(), state.calc_score());
+    return state.calc_score();
 }
 
 #ifdef _MSC_VER
-long long batch_test() {
+long long batch_test(int num_seeds) {
 
-    vector<long long> scores(150, 0);
+    vector<long long> scores(num_seeds, 0);
 
-    concurrency::parallel_for(0, 150, [&](int seed) {
+    concurrency::parallel_for(0, num_seeds, [&](int seed) {
         string in_file = format("C:\\dev\\heuristic\\tasks\\AHC007\\tools\\in\\%04d.txt", seed);
-        string out_file = format("C:\\dev\\heuristic\\tasks\\AHC007\\tools\\out\\%04d.txt", seed);
         ifstream ifs(in_file);
-        ofstream ofs(out_file);
-        int score = solve(ifs, ofs);
+        int score = solve(ifs, cout, true);
         scores[seed] = score;
-    });
+        }, concurrency::simple_partitioner(num_seeds / 10));
 
     long long score_sum = accumulate(scores.begin(), scores.end(), 0LL);
     dump(score_sum);
     return score_sum;
 }
 
+int single_test() {
+    string in_file = "C:\\dev\\heuristic\\tasks\\AHC007\\tools\\in\\0000.txt";
+    string out_file = "C:\\dev\\heuristic\\tasks\\AHC007\\tools\\out\\0000.txt";
+    ifstream ifs(in_file);
+    ofstream ofs(out_file);
+    int score = solve(ifs, ofs);
+    dump(score);
+}
+
 int main() {
-    batch_test();
+    batch_test(150);
+    //single_test();
 }
 
 #else
